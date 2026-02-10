@@ -583,10 +583,7 @@ def create_poster(
     # Layer 1: Water
     if water is not None and not water.empty:
         # Project water features in the same CRS as the graph
-        try:
-            water_proj = ox.projection.project_gdf(water)
-        except Exception:
-            water_proj = water.to_crs(g_proj.graph['crs'])
+        water_proj = water.to_crs(g_proj.graph['crs'])
 
         # Separate water polygons and island polygons
         water_polys_all = water_proj[water_proj.geometry.type.isin(["Polygon", "MultiPolygon"])]
@@ -648,16 +645,21 @@ def create_poster(
                                     if poly.area < (bbox_poly.area * 0.001):
                                         continue
 
-                                    # If it contains many known park/green space, it is likely land
-                                    parks_inside = sum(1 for p in park_points if poly.contains(p))
-                                    if parks_inside > 3:
-                                        continue
-
                                     # Count how many road nodes fall into this polygon
                                     nodes_inside = sum(1 for p in sample_nodes if poly.contains(p))
                                     
+                                    # Heuristic: Land polygons have significantly higher road node density than water.
+                                    # We use density (nodes per km²) to be scale-invariant.
+                                    # A threshold of 50 nodes/km² (with sampling) is safe to distinguish 
+                                    # even sparsely populated land from water/oceans.
+                                    
+                                    # Adjust density based on sampling rate
+                                    sampling_ratio = len(sample_nodes) / len(node_points)
+                                    estimated_total_nodes = nodes_inside / sampling_ratio if sampling_ratio > 0 else 0
+                                    density = (estimated_total_nodes / poly.area) * 1_000_000 # nodes per km²
+                                    
                                     is_water = False
-                                    if nodes_inside < max(3, len(sample_nodes) * 0.02):
+                                    if density < 50:
                                         is_water = True
                                     
                                     if is_water:
@@ -677,10 +679,7 @@ def create_poster(
         parks_polys = parks[parks.geometry.type.isin(["Polygon", "MultiPolygon"])]
         if not parks_polys.empty:
             # Project park features in the same CRS as the graph
-            try:
-                parks_polys = ox.projection.project_gdf(parks_polys)
-            except Exception:
-                parks_polys = parks_polys.to_crs(g_proj.graph['crs'])
+            parks_polys = parks_polys.to_crs(g_proj.graph['crs'])
             parks_polys.plot(ax=ax, facecolor=THEME['parks'], edgecolor='none', zorder=0.8)
     # Layer 2: Roads with hierarchy coloring
     print("Applying road hierarchy colors...")
